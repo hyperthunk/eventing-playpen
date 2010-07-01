@@ -29,13 +29,21 @@ VERBOSE ?= ""
 CONFIG_DIRS = `find deps -type f -n configure`
 MAKE_DIRS = `find deps -type f -n Makefile`
 HERE := $(shell pwd)
-DEPS := `find deps -type d`
 
 all: info
 
 info:
 	$(info erl program located at $(ERL))
 	$(info ERL_LIBS set to $(ERL_LIBS))
+
+deps: exmpp ejabberd
+
+exmpp:
+	epm install processone/exmpp --tag v0.9.3 \
+                                 --prebuild-command "autoreconf -vif" \
+                                 --build-command "configure && make" \
+                                 --config-set build_dir $(HERE)/build \
+                                 --config-set install_dir $(HERE)/deps
 
 ejabberd:
 	cd deps/ejabberd/src/; configure; make; cd $(HERE)
