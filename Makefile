@@ -29,6 +29,7 @@ VERBOSE ?= ""
 CONFIG_DIRS = `find deps -type f -n configure`
 MAKE_DIRS = `find deps -type f -n Makefile`
 HERE := $(shell pwd)
+BUILD := $(HERE)/build
 
 all: info
 
@@ -36,37 +37,36 @@ info:
 	$(info erl program located at $(ERL))
 	$(info ERL_LIBS set to $(ERL_LIBS))
 
-package-manager:
-	./epm latest
+deps:
+	mkdir -p $@
 
-deps: exmpp ejabberd
+deps/exmpp: deps
+	@(echo "y" | env HOME=$(BUILD) ./epm install processone/exmpp \
+                                --tag v0.9.3 \
+                                --prebuild-command "autoreconf -vif" \
+                                --build-command "configure && make" \
+                                --config-set build_dir $(HERE)/build \
+                                --config-set install_dir $(HERE)/deps \
+                                --verbose)
 
-exmpp: package-manager
-	epm install processone/exmpp --tag v0.9.3 \
-                                 --prebuild-command "autoreconf -vif" \
-                                 --build-command "configure && make" \
-                                 --config-set build_dir $(HERE)/build \
-                                 --config-set install_dir $(HERE)/deps
+deps/ejabberd: deps
+	@(echo "y" | env HOME=$(BUILD) ./epm install processone/ejabberd \
+                                --tag v2.1.4 \
+                                --prebuild-command "cd src && ./configure" \
+                                --build-command "cd src && make && mkdir ../ebin" \
+                                --config-set build_dir $(BUILD) \
+                                --config-set install_dir $(HERE)/deps \
+                                --verbose)
 
-ejabberd:
-	cd deps/ejabberd/src/; configure; make; cd $(HERE)
-
-%configure:
-	#configure -f $@
-
-%Makefile:
-	#make -f $@
-
-check:
+check: deps/exmpp deps/ejabberd
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE check-deps)
 
 compile: check
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile)
 
-ejabberd-clean:
-	cd deps/ejabberd/src; make clean;
-
-clean: ejabberd-clean
+clean:
+	@(env HOME=$(BUILD) ./epm remove exmpp --verbose)
+	@(env HOME=$(BUILD) ./epm remove ejabberd --verbose)
 	@(./rebar clean)
 
 edoc:

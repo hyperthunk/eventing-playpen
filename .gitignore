@@ -11,5 +11,4 @@ coverage/*
 erl_crash.dump
 priv/
 test/logs/
-ebin/*.beam
 logs/*
