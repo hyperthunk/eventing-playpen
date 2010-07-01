@@ -23,13 +23,13 @@
 # THE SOFTWARE.
 # -----------------------------------------------------------------------------
 
+.PHONY: configure, Makefile
+
 ERL ?= `which erl`
 ERL_LIBS := $(shell echo "./deps:`echo $$ERL_LIBS`")
 VERBOSE ?= ""
 CONFIG_DIRS = `find deps -type f -n configure`
 MAKE_DIRS = `find deps -type f -n Makefile`
-HERE := $(shell pwd)
-DEPS := `find deps -type d`
 
 all: info
 
@@ -37,14 +37,15 @@ info:
 	$(info erl program located at $(ERL))
 	$(info ERL_LIBS set to $(ERL_LIBS))
 
-ejabberd:
-	cd deps/ejabberd/src/; configure; make; cd $(HERE)
+jabber: deps/ejabberd/src/configure deps/ejabberd/src/Makefile
 
-%configure:
-	#configure -f $@
-
-%Makefile:
+$(MAKE_DIRS):
 	#make -f $@
+    $(shell echo $@)
+
+$(CONFIG_DIRS):
+	#$(shell $@)
+    $(shell echo $@)
 
 check:
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE check-deps)
@@ -52,10 +53,7 @@ check:
 compile: check
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile)
 
-ejabberd-clean:
-	cd deps/ejabberd/src; make clean;
-
-clean: ejabberd-clean
+clean:
 	@(./rebar clean)
 
 edoc:
