@@ -55,7 +55,7 @@ deps/ejabberd: deps
 	@(echo "y" | env HOME=$(BUILD) ./epm install processone/ejabberd \
                                 --tag v2.1.4 \
                                 --prebuild-command "cd src && ./configure" \
-                                --build-command "cd src && make && mkdir ../ebin && cp ejabberd.app ../ebint" \
+                                --build-command "cd src && make && mkdir ../ebin && cp ejabberd.app ../ebin/" \
                                 --config-set build_dir $(BUILD) \
                                 --config-set install_dir $(HERE)/deps $$VERBOSE)
 
