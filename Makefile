@@ -1,6 +1,6 @@
 # -----------------------------------------------------------------------------
 #
-# Hamcrest Erlang.
+# Phonostroma
 #
 # Copyright (c) 2010 Tim Watson (watson.timothy@gmail.com)
 #
