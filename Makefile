@@ -37,7 +37,10 @@ info:
 	$(info erl program located at $(ERL))
 	$(info ERL_LIBS set to $(ERL_LIBS))
 
-deps:
+deps: build
+	mkdir -p $@
+
+build:
 	mkdir -p $@
 
 deps/exmpp: deps
@@ -46,17 +49,15 @@ deps/exmpp: deps
                                 --prebuild-command "autoreconf -vif" \
                                 --build-command "configure && make" \
                                 --config-set build_dir $(HERE)/build \
-                                --config-set install_dir $(HERE)/deps \
-                                --verbose)
+                                --config-set install_dir $(HERE)/deps $$VERBOSE)
 
 deps/ejabberd: deps
 	@(echo "y" | env HOME=$(BUILD) ./epm install processone/ejabberd \
                                 --tag v2.1.4 \
                                 --prebuild-command "cd src && ./configure" \
-                                --build-command "cd src && make && mkdir ../ebin" \
+                                --build-command "cd src && make && mkdir ../ebin && cp ejabberd.app ../ebint" \
                                 --config-set build_dir $(BUILD) \
-                                --config-set install_dir $(HERE)/deps \
-                                --verbose)
+                                --config-set install_dir $(HERE)/deps $$VERBOSE)
 
 check: deps/exmpp deps/ejabberd
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE check-deps)
@@ -65,9 +66,9 @@ compile: check
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile)
 
 clean:
-	@(env HOME=$(BUILD) ./epm remove exmpp --verbose)
-	@(env HOME=$(BUILD) ./epm remove ejabberd --verbose)
-	@(./rebar clean)
+	@(echo "y" | env HOME=$(BUILD) ./epm remove exmpp $(VERBOSE))
+	@(echo "y" | env HOME=$(BUILD) ./epm remove ejabberd $(VERBOSE))
+	@(./rebar $$VERBOSE clean delete-deps)
 
 edoc:
 	@$(ERL) -noshell -run edoc_run application '$(APP)' '"."' '[{preprocess, true},{includes, ["."]}]'
