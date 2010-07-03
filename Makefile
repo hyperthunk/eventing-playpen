@@ -31,7 +31,8 @@ MAKE_DIRS = `find deps -type f -n Makefile`
 HERE := $(shell pwd)
 BUILD := $(HERE)/build
 
-all: info
+all: check info
+    $(info ready to run the test, package and/or install tasks)
 
 info:
 	$(info erl program located at $(ERL))
