@@ -1,8 +1,4 @@
 %% -----------------------------------------------------------------------------
-%%
-%% Phonostroma: extcc_subsriber_SUITE
-%%
-%% -----------------------------------------------------------------------------
 %% Copyright (c) 2010 Tim Watson (watson.timothy@gmail.com)
 %%
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -24,12 +20,17 @@
 %% THE SOFTWARE.
 %% -----------------------------------------------------------------------------
 
--module(extcc_subscriber_SUITE).
-
--include_lib("eunit/include/eunit.hrl").
--include_lib("common_test/include/ct.hrl").
--include_lib("proper/include/proper.hrl").
--include("../include/test.hrl").
--include("../include/hamcrest.hrl").
-
-
+-define(CT_REGISTER_TESTS(Mod),
+	All = [ FName || {FName, _} <- lists:filter(
+            fun ({module_info,_}) -> false ;
+                ({all,_}) -> false ;
+                ({init_per_suite,1}) -> false ;
+                ({end_per_suite,1}) -> false ;
+                ({_,1}) -> true ;
+                ({_,_}) -> false
+            end,
+            Mod:module_info(exports)
+        )
+    ],
+    ct:pal("registering ~p~n", [All]),
+    All).

@@ -66,7 +66,7 @@ deps/ejabberd: deps
 
 deps/proper: deps
 	@(echo "y" | env HOME=$(BUILD) ./epm install manopapad/proper \
-                --build-command "make $(INCL_TYPES) && ln -s $(HERE)/scripts/proper.app.template $(BUILD)/manopapad-proper/ebin/proper.app" \
+                --build-command "make $(INCL_TYPES)" \
                 --config-set build_dir $(BUILD) \
                 --config-set install_dir $(HERE)/deps $$VERBOSE)
 
