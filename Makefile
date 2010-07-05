@@ -26,10 +26,14 @@
 ERL ?= `which erl`
 ERL_LIBS := $(shell echo "./deps:`echo $$ERL_LIBS`")
 VERBOSE ?= ""
-CONFIG_DIRS = `find deps -type f -n configure`
-MAKE_DIRS = `find deps -type f -n Makefile`
 HERE := $(shell pwd)
 BUILD := $(HERE)/build
+ERTS_VSN := $(shell escript scripts/checkvsn "5.7.4")
+ifeq ($ERTS_VSN, "true")
+    INCL_TYPES = ""
+else
+    INCL_TYPES = "NOTYPES=1"
+endif
 
 all: check info
     $(info ready to run the test, package and/or install tasks)
@@ -60,11 +64,17 @@ deps/ejabberd: deps
                                 --config-set build_dir $(BUILD) \
                                 --config-set install_dir $(HERE)/deps $$VERBOSE)
 
-check: deps/exmpp deps/ejabberd
+deps/proper: deps
+	@(echo "y" | env HOME=$(BUILD) ./epm install manopapad/proper \
+                --build-command "make $(INCL_TYPES) && ln -s $(HERE)/scripts/proper.app.template $(BUILD)/manopapad-proper/ebin/proper.app" \
+                --config-set build_dir $(BUILD) \
+                --config-set install_dir $(HERE)/deps $$VERBOSE)
+
+check: deps/proper deps/exmpp deps/ejabberd
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE check-deps)
 
 compile: check
-	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile)
+	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile skip_deps=true)
 
 clean:
 	@(echo "y" | env HOME=$(BUILD) ./epm remove exmpp $(VERBOSE))
@@ -75,4 +85,4 @@ edoc:
 	@$(ERL) -noshell -run edoc_run application '$(APP)' '"."' '[{preprocess, true},{includes, ["."]}]'
 
 test: compile
-	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE test)
+	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile skip_deps=true)

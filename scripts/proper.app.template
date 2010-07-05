@@ -1,0 +1,15 @@
+{application,
+ proper,
+ [{description,"PropEr: a QuickCheck-compatible Property-based testing tool for Erlang"},
+  {vsn,"0.0.1"},
+  {modules,[
+    proper,
+    proper_arith,
+    proper_extra,
+    proper_gen,
+    proper_shrink,
+    proper_symb,
+    proper_types]},
+  {registered,[]},
+  {applications,[kernel,stdlib]},
+  {env,[]}]}.
