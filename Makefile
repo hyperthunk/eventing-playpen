@@ -28,12 +28,11 @@ ERL_LIBS := $(shell echo "./deps:`echo $$ERL_LIBS`")
 VERBOSE ?= ""
 HERE := $(shell pwd)
 BUILD := $(HERE)/build
-ERTS_VSN := $(shell escript scripts/checkvsn "5.7.4")
-ifeq ($ERTS_VSN, "true")
-    INCL_TYPES = ""
-else
-    INCL_TYPES = "NOTYPES=1"
+ERTS_VSN := $(shell escript scripts/checkvsn "5.7.5")
+ifeq ($(ERTS_VSN), 0)
+    INCL_TYPES = "-b"
 endif
+INCL_TYPES ?= "NOTYPES=1"
 
 all: check info
     $(info ready to run the test, package and/or install tasks)

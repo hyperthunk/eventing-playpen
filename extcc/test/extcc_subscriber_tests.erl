@@ -32,4 +32,8 @@
 -include("../include/test.hrl").
 -include("../include/hamcrest.hrl").
 
+-compile(export_all).
+
+all() -> ?CT_REGISTER_TESTS(?MODULE).
+
 
