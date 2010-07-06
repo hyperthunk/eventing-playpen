@@ -28,12 +28,14 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
--include_lib("proper/include/proper.hrl").
+-include_lib("hamcrest/include/hamcrest.hrl").
+%% -include_lib("proper/include/proper.hrl").
 -include("../include/test.hrl").
--include("../include/hamcrest.hrl").
 
 -compile(export_all).
 
 all() -> ?CT_REGISTER_TESTS(?MODULE).
 
-
+starting_subscription_server_without_callback_handler_should_fail(_) ->
+    Startup = extcc_subscriber:start([]),
+    ?assertThat(Startup, is(equal_to({error, {config, no_callback}}))).

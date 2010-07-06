@@ -125,10 +125,13 @@ behaviour_info(_Other) ->
 %% Returns: {ok, Pid} |
 %%          {error, {already_started, Pid}} |
 %%          {error, Reason}
+%%              Reason ::= {config, ConfigError::term()}
 %% -----------------------------------------------------------------------------
 -spec(start/1 :: ([{callback, {atom(), atom()}} |
                    {subscribers, [{subscriber, atom()}]}]) -> {ok, pid()} |
                                                               {error, {already_started, pid()}} |
-                                                              {error, Reason::term()}).
+                                                              {error, {config, term()}}).
+start([]) ->
+    {error, {config, no_callback}};
 start(_Options) ->
-    {ok, self()}.
+    ok.
