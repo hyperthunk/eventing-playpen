@@ -92,9 +92,11 @@
 %% messages (terms) to the listener (i.e., the server). The server maintains the
 %% state of each channel and co-ordinates with the user module(s) to transpose
 %% the raw inputs (received as erlang messages) into event records and subsequently
-%% publishes them to an intermediary, defined during startup by the supplying the
-%% {callback, {Mod,Func}} configuration tuple, where Mod is the module and Func
-%% the function to be called to publish transposed events.
+%% publishes them to an intermediary, using the gen_event mechanism. The event
+%% handler is registered by the atom 'extcc.subscription.manager' and is
+%% registered locally by default. You can override this behaviour by registering
+%%
+%%
 %% -----------------------------------------------------------------------------
 
 -module(extcc_subscriber).
@@ -116,10 +118,15 @@ behaviour_info(callbacks) ->
 behaviour_info(_Other) ->
     undefined.
 
+-type(callback_option() :: local | global | atom()).
+
 %% -----------------------------------------------------------------------------
 %% Starts a subscription server.
 %% start(Options)
-%%    Options ::= [{callback, {Mod, Func}} | {subscribers, [SubscriberDef]}]
+%%    Options ::= [{callback, [CallbackOpts]} |
+%%                 {subscribers, [SubscriberDef]} |
+%%                 {options, [term()]}]
+%%      CallbackOpts ::= local | global | CustomEventHandler::atom()
 %%    SubscriberDef ::= {subscriber, Module}
 %%
 %% Returns: {ok, Pid} |
@@ -127,8 +134,9 @@ behaviour_info(_Other) ->
 %%          {error, Reason}
 %%              Reason ::= {config, ConfigError::term()}
 %% -----------------------------------------------------------------------------
--spec(start/1 :: ([{callback, {atom(), atom()}} |
-                   {subscribers, [{subscriber, atom()}]}]) -> {ok, pid()} |
+-spec(start/1 :: ([{callback, [callback_option()]} |
+                   {subscribers, [{subscriber, atom()}]} |
+                   {options, [term()]}]) -> {ok, pid()} |
                                                               {error, {already_started, pid()}} |
                                                               {error, {config, term()}}).
 start([]) ->

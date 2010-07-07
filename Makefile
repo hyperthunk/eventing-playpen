@@ -84,4 +84,4 @@ edoc:
 	@$(ERL) -noshell -run edoc_run application '$(APP)' '"."' '[{preprocess, true},{includes, ["."]}]'
 
 test: compile
-	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile skip_deps=true)
+	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE ct skip_deps=true)
