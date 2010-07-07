@@ -70,7 +70,7 @@ deps/proper: deps
                 --config-set install_dir $(HERE)/deps $$VERBOSE)
 
 check: deps/proper deps/exmpp deps/ejabberd
-	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE check-deps)
+	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE get-deps check-deps)
 
 compile: check
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile skip_deps=true)
