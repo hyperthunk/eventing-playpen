@@ -1,2 +1,3 @@
 {ok, PWD} = file:get_cwd(),
+code:add_pathz(filename:join(PWD, "../deps/hamcrest/ebin")),
 code:add_pathz(filename:join(PWD, "../deps/proper-1.0/ebin")).
