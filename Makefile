@@ -69,6 +69,9 @@ deps/proper: deps
                 --config-set build_dir $(BUILD) \
                 --config-set install_dir $(HERE)/deps $$VERBOSE)
 
+deps/hamcrest/include/hamcrest.hrl: 
+	cd deps/hamcrest; env ERL_LIBS=$$ERL_LIBS make compile VERBOSE=$(VERBOSE)
+
 check: deps/proper deps/exmpp deps/ejabberd
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE get-deps check-deps)
 
@@ -77,11 +80,12 @@ compile: check
 
 clean:
 	@(echo "y" | env HOME=$(BUILD) ./epm remove exmpp $(VERBOSE))
+	@(echo "y" | env HOME=$(BUILD) ./epm remove proper $(VERBOSE))
 	@(echo "y" | env HOME=$(BUILD) ./epm remove ejabberd $(VERBOSE))
 	@(./rebar $$VERBOSE clean delete-deps)
 
 edoc:
 	@$(ERL) -noshell -run edoc_run application '$(APP)' '"."' '[{preprocess, true},{includes, ["."]}]'
 
-test: compile
+test: compile deps/hamcrest/include/hamcrest.hrl
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE ct skip_deps=true)
