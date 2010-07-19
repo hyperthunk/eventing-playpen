@@ -23,7 +23,7 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 %% THE SOFTWARE.
 %% -----------------------------------------------------------------------------
-%% @doc Defines a high level interface for event subscription providers.
+%% @doc Defines a high level interface for event subscriptions.
 %%
 %% The idea behind THIS server is that the callback module provides
 %% functions to open and close channels and to convert channel inputs into
@@ -84,7 +84,8 @@
 %%                                Server ! Term      .
 %%     transpose_event  <-----                       .
 %%                      ----->                       .
-%%     stop             ----->                       .
+%%     stop (or)        ----->                       .
+%%     unregister       ----->                       .
 %%     terminate        <-----                       .
 %%
 %%
@@ -117,7 +118,10 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
--export([start_link/0, start/1]).
+-export([start_link/0,
+         start/1,
+         stop/0,
+         stop/1]).
 -export([behaviour_info/1]).
 -export([which_subscribers/0]).
 
@@ -213,6 +217,31 @@ start(Options) ->
       _         -> ?E_BADDRIVER
   end.
 
+%% -----------------------------------------------------------------------------
+%% Stops a subscription server.
+%% Returns: term() i.e., server status
+%% -----------------------------------------------------------------------------
+-spec(stop/0 :: () -> term()).
+stop() ->
+  stop(?SERVER).
+
+%% -----------------------------------------------------------------------------
+%% Stops a subscription server.
+%% stop(Server)
+%%    Server ::= Name || pid()
+%%      Name ::= atom()
+%% Returns: term() i.e., server status
+%% -----------------------------------------------------------------------------
+-spec(stop/1 :: (atom() | pid()) -> term()).
+stop(Name) when is_atom(Name) ->
+    gen_server:cast(Name, stop);
+stop(Pid) when is_pid(Pid) ->
+    gen_server:cast(Pid, stop).
+
+%% -----------------------------------------------------------------------------
+%% Returns a list of all registered subscription plugins
+%% Returns: [module()] i.e., a list of registered subscription callback modules
+%% -----------------------------------------------------------------------------
 which_subscribers() ->
   gen_server:call(?SERVER, {get_config, subscribers}).
 
@@ -228,6 +257,8 @@ handle_call({get_config, Key}, _, #'extcc.subscription.server.state'{ options=Op
 handle_call(_Request, _From, State) ->
   {noreply, ok, State}.
 
+handle_cast(stop, State) ->
+  {stop, normal, stopping, State};
 handle_cast(_Msg, State) ->
   {noreply, State}.
     

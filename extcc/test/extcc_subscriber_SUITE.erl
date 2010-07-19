@@ -37,7 +37,8 @@
 -define(COLLECTOR(TC), list_to_atom(atom_to_list(TC) ++ "_collector")).
 
 all() -> [starting_subscription_server_without_callback_handler_should_fail,
-          starting_subscription_server_with_valid_callback_should_not_fail].
+          starting_subscription_server_with_valid_callback_should_not_fail,
+          subscription_server_should_track_registered_subscription_handlers].
 
 init_per_testcase(TestCase, Config) ->
     %% TODO: replace this with libtest/emock
@@ -73,12 +74,37 @@ starting_subscription_server_with_valid_callback_should_not_fail(Config) ->
   CallbackOptions = [Pid],
   ct:pal("starting subscription manager", []),
   {ok, Server} = extcc_subscriber:start([
+    {broadcast_driver, {?MODULE, [Pid]}}]),
+  ?assertThat(Server, isalive()),
+  %% assuming the service has started, kill it - if not this line isn't needed
+  extcc_subscriber:stop(Server).
+  
+subscription_server_should_track_registered_subscription_handlers(Config) ->
+  Pid = proplists:get_value(collector, Config),
+  CallbackOptions = [Pid],
+  ct:pal("starting subscription manager", []),
+  {ok, Server} = extcc_subscriber:start([
     {broadcast_driver, {?MODULE, [Pid]}},
     {subscribers, [?MODULE]}]),
-  ?assertThat(Server, isalive()).
-  %%register(extcc_subscriber, Server),
-  %%?assertThat(extcc_subscriber:which_subscribers(),
-  %%  is(equal_to({subscribers, [?MODULE]}))).
+  register(extcc_subscriber, Server),
+  F = fun() ->
+    S = extcc_subscriber:which_subscribers(),
+    catch( unregister(extcc_subscriber) ),
+    ct:pal("subscribers = ~p", [S]),
+    S
+  end,
+  ?assertThat(F(), is(equal_to([?MODULE]))).
+  
+%%late_registration_via_api(_) ->
+%%  Pid = proplists:get_value(collector, Config),
+%%  CallbackOptions = [Pid],
+%%  ct:pal("starting subscription manager", []),
+%%  {ok, Server} =
+%%  extcc_subscriber:start([
+%%    {broadcast_driver, {?MODULE, [Pid]}},
+%%    {subscribers, [{?MODULE, [Pid]}]}]
+%%  ),
+%%  ?assertThat(F(), is(equal_to([?MODULE]))).
 
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
 %% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
@@ -100,6 +126,8 @@ terminate(Reason, State) -> ok.
 
 handle_event(Event, State) ->
   {ok, State}.
+
+
 
 collector_loop(State) ->
   ct:pal("collector looping...~n", []),
