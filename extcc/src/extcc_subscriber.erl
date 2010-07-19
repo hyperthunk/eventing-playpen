@@ -93,9 +93,11 @@
 %% state of each channel and co-ordinates with the user module(s) to transpose
 %% the raw inputs (received as erlang messages) into event records and subsequently
 %% publishes them to an intermediary, using the gen_event mechanism. The event
-%% handler is registered by the atom 'extcc.subscription.manager' and is
-%% registered locally by default. You can override this behaviour by registering
-%%
+%% manager is registered by the atom 'extcc.subscription.manager' and is
+%% registered locally by default. You can override this behaviour during startup
+%% by providing either the atom global (to globally register the default handler)
+%% or by providing a custom event handler name, in which case a pre-started
+%% event manager assuming the supplied name is assumed.
 %%
 %% -----------------------------------------------------------------------------
 
@@ -105,41 +107,148 @@
 -compile(export_all).
 -endif.
 
-%% Client API Exports
--export([start/1]).
+%%
+%% What Am I?
+%%
 
+-behavior(gen_server).
+
+%% ------------------------------------------------------------------
+%% API Function Exports
+%% ------------------------------------------------------------------
+
+-export([start_link/0, start/1]).
 -export([behaviour_info/1]).
+-export([which_subscribers/0]).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Exports
+%% ------------------------------------------------------------------
+
+-export([init/1,
+         handle_call/3,
+         handle_cast/2,
+         handle_info/2,
+         terminate/2,
+         code_change/3]).
+
+%% ------------------------------------------------------------------
+%% Prelude
+%% ------------------------------------------------------------------
+
+-include("../include/extcc.hrl").
+
+-define(E_NODRIVER, {error, {config, no_broadcast_driver}}).
+-define(E_BADDRIVER, {error, {config, bad_broadcast_driver}}).
+
+-type(callback_option() :: atom() | {atom(), term()}).
+
+-define(SERVER, ?MODULE).
+
+%% ------------------------------------------------------------------
+%% Custom Behaviour Definition
+%% ------------------------------------------------------------------
 
 behaviour_info(callbacks) ->
-    [{open_channel, 2},
-     {close_channel, 2},
-     {transpose_event, 2},
-     {terminate, 2}];
+  [{open_channel, 2},
+   {close_channel, 2},
+   {transpose_event, 2},
+   {terminate, 2}];
 behaviour_info(_Other) ->
-    undefined.
+  undefined.
 
--type(callback_option() :: local | global | atom()).
+%% ------------------------------------------------------------------
+%% API Function Definitions
+%% ------------------------------------------------------------------
 
+start_link() ->
+  gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+  
 %% -----------------------------------------------------------------------------
 %% Starts a subscription server.
 %% start(Options)
-%%    Options ::= [{callback, [CallbackOpts]} |
+%%    Options ::= [{broadcast_driver, CallbackOpts} |
 %%                 {subscribers, [SubscriberDef]} |
 %%                 {options, [term()]}]
-%%      CallbackOpts ::= local | global | CustomEventHandler::atom()
-%%    SubscriberDef ::= {subscriber, Module}
+%%      CallbackOpts ::= Module | {Module, Id::term()}
+%%    SubscriberDef ::= Module
+%%    Module ::= atom()
 %%
 %% Returns: {ok, Pid} |
 %%          {error, {already_started, Pid}} |
 %%          {error, Reason}
 %%              Reason ::= {config, ConfigError::term()}
+%%              ConfigError ::= no_broadcast_driver | unknown
 %% -----------------------------------------------------------------------------
--spec(start/1 :: ([{callback, [callback_option()]} |
-                   {subscribers, [{subscriber, atom()}]} |
-                   {options, [term()]}]) -> {ok, pid()} |
-                                                              {error, {already_started, pid()}} |
-                                                              {error, {config, term()}}).
+-spec(start/1 :: ([{broadcast_driver, [callback_option()]} |
+                   {subscribers, [atom()]} |
+                   {options, [term()]}]) ->
+                        {ok, pid()} |   
+                        {error, {already_started, pid()}} |
+                        {error, {config, term()}} |
+                        {error, {startup, term()}}).
 start([]) ->
-    {error, {config, no_callback}};
-start(_Options) ->
-    ok.
+  ?E_NODRIVER;
+start(Options) ->
+  %% does the caller supply me with a gen_event callback module to be registered?
+  %% how do I know whether I should start a subscription manager myself or not?
+  EvIntDrv = proplists:get_value(broadcast_driver, Options),
+  case EvIntDrv of
+      %%Mod when is_atom(Mod) andalso Mod =/= undefined ->
+      {Mod, InitArgs} when is_atom(Mod) andalso is_list(InitArgs) ->
+          case gen_event:add_handler(?SUBSCRIPTION_EV_MGR, Mod, InitArgs) of
+              ok -> 
+                  case gen_server:start(?MODULE, Options, gen_server_options(Options)) of
+                      {ok,_}=Started ->
+                        Started;
+                      Other ->
+                        {error, {startup, {"gen_server startup failed", Other}}}
+                  end;
+              {'EXIT', Reason} ->
+                {error, {startup, Reason}};
+              StartupFailure ->
+                {error, {startup, StartupFailure}}
+          end;
+      undefined -> ?E_NODRIVER;
+      _         -> ?E_BADDRIVER
+  end.
+
+which_subscribers() ->
+  gen_server:call(?SERVER, {get_config, subscribers}).
+
+%% ------------------------------------------------------------------
+%% gen_server Function Definitions
+%% ------------------------------------------------------------------
+
+init(Args) ->
+  {ok, #'extcc.subscription.server.state'{ options=Args }}.
+
+handle_call({get_config, Key}, _, #'extcc.subscription.server.state'{ options=Opts }=State) ->
+  {reply, proplists:get_value(Key, Opts), State};
+handle_call(_Request, _From, State) ->
+  {noreply, ok, State}.
+
+handle_cast(_Msg, State) ->
+  {noreply, State}.
+    
+handle_info(_Info, State) ->
+  {noreply, State}.
+
+terminate(_Reason, _State) ->
+  ok.
+
+code_change(_OldVsn, State, _Extra) ->
+  {ok, State}.
+
+%% ------------------------------------------------------------------
+%% Internal Function Definitions
+%% ------------------------------------------------------------------
+
+%% @hidden
+%% TODO: this seems quite reusable
+gen_server_options(Options) ->
+  lists:filter(fun({debug, _}) -> true;
+                  ({timeout, _}) -> true;
+                  ({spawn_opt, _}) -> true;
+                  (_) -> false
+               end, Options).

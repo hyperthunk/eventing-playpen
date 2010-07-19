@@ -30,3 +30,9 @@
     body        = undefined :: term(),
     headers     = []        :: [{atom(), term()}]
 }).
+
+-record('extcc.subscription.server.state', {
+    options     = []        :: [{atom(), term()}]
+}).
+
+-define(SUBSCRIPTION_EV_MGR, 'extcc.subscription.manager').
