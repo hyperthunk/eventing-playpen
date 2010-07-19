@@ -191,30 +191,29 @@ start_link() ->
                         {error, {already_started, pid()}} |
                         {error, {config, term()}} |
                         {error, {startup, term()}}).
-start([]) ->
-  ?E_NODRIVER;
 start(Options) ->
   %% does the caller supply me with a gen_event callback module to be registered?
   %% how do I know whether I should start a subscription manager myself or not?
-  EvIntDrv = proplists:get_value(broadcast_driver, Options),
-  case EvIntDrv of
-      %%Mod when is_atom(Mod) andalso Mod =/= undefined ->
-      {Mod, InitArgs} when is_atom(Mod) andalso is_list(InitArgs) ->
-          case gen_event:add_handler(?SUBSCRIPTION_EV_MGR, Mod, InitArgs) of
-              ok -> 
-                  case gen_server:start(?MODULE, Options, gen_server_options(Options)) of
-                      {ok,_}=Started ->
-                        Started;
-                      Other ->
-                        {error, {startup, {"gen_server startup failed", Other}}}
-                  end;
-              {'EXIT', Reason} ->
-                {error, {startup, Reason}};
-              StartupFailure ->
-                {error, {startup, StartupFailure}}
-          end;
-      undefined -> ?E_NODRIVER;
-      _         -> ?E_BADDRIVER
+  do_start(broadcast_driver, proplists:get_value(broadcast_driver, Options), Options).
+
+do_start(broadcast_driver, {Mod, InitArgs}, Options) when is_atom(Mod) andalso is_list(InitArgs) ->
+  case gen_event:add_handler(?SUBSCRIPTION_EV_MGR, Mod, InitArgs) of
+    ok -> 
+      do_start(server, Options);
+    {'EXIT', Reason} ->
+      {error, {startup, Reason}};
+    StartupFailure ->
+      {error, {startup, StartupFailure}}
+  end;
+do_start(broadcast_driver, undefined, _) -> ?E_NODRIVER;
+do_start(broadcast_driver, _, _) -> ?E_BADDRIVER.
+
+do_start(server, Options) ->
+  case gen_server:start(?MODULE, Options, gen_server_options(Options)) of
+    {ok,_}=Started ->
+      Started;
+    Other ->
+      {error, {startup, {"gen_server startup failed", Other}}}
   end.
 
 %% -----------------------------------------------------------------------------
