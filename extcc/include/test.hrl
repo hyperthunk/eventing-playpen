@@ -34,3 +34,7 @@
     ],
     ct:pal("registering ~p~n", [All]),
     All).
+
+-define(BLOCK_UNTIL_DONE(Sender, Code),
+				F = fun() -> Code(), Sender ! done end,
+				F(), receive done -> ok end).

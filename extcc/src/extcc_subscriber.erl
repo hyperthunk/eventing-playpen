@@ -118,12 +118,15 @@
 %% API Function Exports
 %% ------------------------------------------------------------------
 
+-export([behaviour_info/1]).
+
 -export([start_link/0,
          start/1,
          stop/0,
          stop/1]).
--export([behaviour_info/1]).
--export([which_subscribers/0]).
+
+-export([which_subscribers/0,
+         register_subscriber/1]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -149,6 +152,12 @@
 
 -define(SERVER, ?MODULE).
 
+-record(state, {
+    listener                :: pid() | atom() | {atom(), atom()} | {global, atom()},
+    options     = []        :: [{atom(), term()}],
+    subscribers = []        :: []
+}).
+
 %% ------------------------------------------------------------------
 %% Custom Behaviour Definition
 %% ------------------------------------------------------------------
@@ -169,7 +178,7 @@ start_link() ->
   gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
   
 %% -----------------------------------------------------------------------------
-%% Starts a subscription server.
+%% @doc Starts a subscription server.
 %% start(Options)
 %%    Options ::= [{broadcast_driver, CallbackOpts} |
 %%                 {subscribers, [SubscriberDef]} |
@@ -196,6 +205,7 @@ start(Options) ->
   %% how do I know whether I should start a subscription manager myself or not?
   do_start(broadcast_driver, proplists:get_value(broadcast_driver, Options), Options).
 
+%% @hidden
 do_start(broadcast_driver, {Mod, InitArgs}, Options) when is_atom(Mod) andalso is_list(InitArgs) ->
   case gen_event:add_handler(?SUBSCRIPTION_EV_MGR, Mod, InitArgs) of
     ok -> 
@@ -208,6 +218,7 @@ do_start(broadcast_driver, {Mod, InitArgs}, Options) when is_atom(Mod) andalso i
 do_start(broadcast_driver, undefined, _) -> ?E_NODRIVER;
 do_start(broadcast_driver, _, _) -> ?E_BADDRIVER.
 
+%% @hidden
 do_start(server, Options) ->
   case gen_server:start(?MODULE, Options, gen_server_options(Options)) of
     {ok,_}=Started ->
@@ -217,7 +228,7 @@ do_start(server, Options) ->
   end.
 
 %% -----------------------------------------------------------------------------
-%% Stops a subscription server.
+%% @doc Stops a subscription server.
 %% Returns: term() i.e., server status
 %% -----------------------------------------------------------------------------
 -spec(stop/0 :: () -> term()).
@@ -225,7 +236,7 @@ stop() ->
   stop(?SERVER).
 
 %% -----------------------------------------------------------------------------
-%% Stops a subscription server.
+%% @doc Stops a subscription server.
 %% stop(Server)
 %%    Server ::= Name || pid()
 %%      Name ::= atom()
@@ -238,21 +249,63 @@ stop(Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, stop).
 
 %% -----------------------------------------------------------------------------
-%% Returns a list of all registered subscription plugins
+%% @doc Returns a list of all registered subscription plugins
 %% Returns: [module()] i.e., a list of registered subscription callback modules
 %% -----------------------------------------------------------------------------
 which_subscribers() ->
   gen_server:call(?SERVER, {get_config, subscribers}).
+
+%% -----------------------------------------------------------------------------
+%% @doc Registers a subscriber callback module.
+%% register_subscriber(Spec)
+%%    Spec ::= {Module, InitArgs}
+%%      Module ::= atom()
+%%      InitArgs ::= term()
+%%
+%% Returns: {ok, Subscriber} |
+%%          {stopping, e_subscription_failed} |
+%%          ignored
+%%              Subscriber ::= #'extcc.subscriber'{}
+%% -----------------------------------------------------------------------------
+register_subscriber({_Mod, _InitArgs}=Spec) ->
+  gen_server:call(?SERVER, {register, Spec}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
 %% ------------------------------------------------------------------
 
 init(Args) ->
-  {ok, #'extcc.subscription.server.state'{ options=Args }}.
+  Listener = proplists:get_value(listener, Args, self()),
+  {ok, #state{ options=Args, listener=Listener }}.
 
-handle_call({get_config, Key}, _, #'extcc.subscription.server.state'{ options=Opts }=State) ->
+handle_call({get_config, Key}, _,
+    #state{ options=Opts }=State) ->
   {reply, proplists:get_value(Key, Opts), State};
+handle_call({register, {Mod, InitArgs}}, _,
+    #state{ subscribers=Subs, listener=Listener }=State) ->
+  case Mod:open_channel(Listener, InitArgs) of
+    {ok, ChannelRef} ->
+      Subscription =
+      #'extcc.subscriber'{
+        channel=ChannelRef,
+        mod=Mod,
+        init=InitArgs},
+      {reply, {ok, Subscription},
+        State#state{ subscribers=[Subscription|Subs] }};
+    {ok, ChannelRef, State} ->
+      StatefulSubscription =
+      #'extcc.subscriber'{
+        channel=ChannelRef,
+        state=State,
+        mod=Mod,
+        init=InitArgs},
+      {reply, {ok, StatefulSubscription},
+        State#state{ subscribers=[StatefulSubscription|Subs] }};
+    ignore -> 
+      {reply, ignored, State};
+    {stop, Reason} ->
+      {stop, Reason, {stopping, e_subscription_failed}, State}
+  end;
 handle_call(_Request, _From, State) ->
   {noreply, ok, State}.
 
@@ -275,7 +328,6 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 
 %% @hidden
-%% TODO: this seems quite reusable
 gen_server_options(Options) ->
   lists:filter(fun({debug, _}) -> true;
                   ({timeout, _}) -> true;

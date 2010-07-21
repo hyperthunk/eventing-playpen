@@ -31,8 +31,11 @@
     headers     = []        :: [{atom(), term()}]
 }).
 
--record('extcc.subscription.server.state', {
-    options     = []        :: [{atom(), term()}]
+-record('extcc.subscriber', {
+    mod         = undefined :: atom(),
+    init        = []        :: [term()],
+    channel     = undefined :: term(),
+    state       = undefined :: term()
 }).
 
 -define(SUBSCRIPTION_EV_MGR, 'extcc.subscription.manager').

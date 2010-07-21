@@ -1,0 +1,2 @@
+extcc_subscriber:
+  - startup to configure listener type as one of Name | {Name, Node} | {global, GlobalName} | pid()

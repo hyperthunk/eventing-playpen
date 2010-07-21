@@ -38,7 +38,8 @@
 
 all() -> [starting_subscription_server_without_callback_handler_should_fail,
           starting_subscription_server_with_valid_callback_should_not_fail,
-          subscription_server_should_track_registered_subscription_handlers].
+          subscription_server_should_track_registered_subscription_handlers,
+          late_registration_via_api].
 
 init_per_testcase(TestCase, Config) ->
     %% TODO: replace this with libtest/emock
@@ -58,7 +59,7 @@ end_per_testcase(TestCase, Config) ->
         {stopping, State} ->
             ct:pal("Collector exiting with state ~p~n", [State])
       after 10000
-        -> ct:pal("Timed out waiting for response from collector proc~n", [])
+        -> ct:pal("~p Timed out waiting for response from collector proc~n", [self()])
       end,
       exit(Pid, normal),
       ok;
@@ -87,33 +88,35 @@ subscription_server_should_track_registered_subscription_handlers(Config) ->
     {broadcast_driver, {?MODULE, [Pid]}},
     {subscribers, [?MODULE]}]),
   register(extcc_subscriber, Server),
-  F = fun() ->
-    S = extcc_subscriber:which_subscribers(),
-    catch( unregister(extcc_subscriber) ),
-    ct:pal("subscribers = ~p", [S]),
-    S
-  end,
-  ?assertThat(F(), is(equal_to([?MODULE]))).
+  F = fun() -> extcc_subscriber:which_subscribers() end,
+  ?assertThat(F(), is(equal_to([?MODULE])), force_stop(Server)).
   
-%%late_registration_via_api(_) ->
-%%  Pid = proplists:get_value(collector, Config),
-%%  CallbackOptions = [Pid],
-%%  ct:pal("starting subscription manager", []),
-%%  {ok, Server} =
-%%  extcc_subscriber:start([
-%%    {broadcast_driver, {?MODULE, [Pid]}},
-%%    {subscribers, [{?MODULE, [Pid]}]}]
-%%  ),
-%%  ?assertThat(F(), is(equal_to([?MODULE]))).
+late_registration_via_api(Config) ->
+  Pid = proplists:get_value(collector, Config),
+  ct:pal("starting subscription manager", []),
+  {ok, Server} = extcc_subscriber:start([{broadcast_driver, {?MODULE, []}}]),
+  register(extcc_subscriber, Server), Ctx = self(),
+  ?BLOCK_UNTIL_DONE(Ctx, fun() -> extcc_subscriber:register_subscriber({?MODULE, [Pid]}) end),
+  ?assertThat(open_channel, was_received_by(Pid), force_stop(Server)).
 
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
 %% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
+
+force_stop(Server) ->
+  fun() ->
+    catch( unregister(extcc_subscriber) ),
+    extcc_subscriber:stop(Server)
+  end.
 
 init(InitArgs) ->
   ct:pal("gen_event handler init/1 called", []),
   {ok, InitArgs}.
 
-open_channel(_,_) ->
+open_channel(Ln, [Pid|_]) when is_pid(Pid) ->
+  ct:pal("opening channel against listener ~p~n", [Ln]),
+  Pid ! open_channel,
+  open_channel(Ln, []);
+open_channel(_, _) ->
   {ok, ?MODULE}.
 
 close_channel(_,_) ->
@@ -122,12 +125,18 @@ close_channel(_,_) ->
 transpose_event(RawInput, State) ->
   {ok, #'extcc.event'{ body=RawInput }, State}.
 
-terminate(Reason, State) -> ok.
+terminate(_Reason, _State) -> ok.
 
 handle_event(Event, State) ->
   {ok, State}.
 
+was_received_by(CollectorPid) ->
+  match_mfa(?MODULE, check_state, [CollectorPid]).
 
+check_state(CollectorPid, Expected) ->
+  %% {response, State} needs to be gotten via recieve!!!
+  CollectorPid ! {status, self()},
+  lists:member(State, Expected).
 
 collector_loop(State) ->
   ct:pal("collector looping...~n", []),
