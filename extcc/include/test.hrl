@@ -22,19 +22,34 @@
 
 -define(CT_REGISTER_TESTS(Mod),
 	All = [ FName || {FName, _} <- lists:filter(
-            fun ({module_info,_}) -> false ;
-                ({all,_}) -> false ;
-                ({init_per_suite,1}) -> false ;
-                ({end_per_suite,1}) -> false ;
-                ({_,1}) -> true ;
-                ({_,_}) -> false
-            end,
-            Mod:module_info(exports)
-        )
-    ],
-    ct:pal("registering ~p~n", [All]),
-    All).
+      fun ({module_info,_}) -> false ;
+          ({all,_}) -> false ;
+          ({init_per_suite,1}) -> false ;
+          ({end_per_suite,1}) -> false ;
+          ({_,1}) -> true ;
+          ({_,_}) -> false
+      end,
+      Mod:module_info(exports)
+    )
+  ],
+  ct:pal("registering ~p~n", [All]),
+  All).
 
 -define(BLOCK_UNTIL_DONE(Sender, Code),
-				F = fun() -> Code(), Sender ! done end,
-				F(), receive done -> ok end).
+	F = fun() -> Code(), Sender ! done end,
+	F(), receive done -> ok end).
+
+%%-define(WAIT_FOR(Pid, Msg, Response, Timeout),
+%%  Pid ! Msg,
+%%  case Timeout of
+%%    infinite ->
+%%      receive
+%%        Response1 when Response1 == Response -> Response1
+%%      end;
+%%    T ->
+%%      receive
+%%        Response2 when Response2 == Response -> Response2
+%%      after T ->
+%%        timeout
+%%      end
+%%  end)

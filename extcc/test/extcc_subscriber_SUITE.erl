@@ -58,8 +58,13 @@ end_per_testcase(TestCase, Config) ->
       receive
         {stopping, State} ->
             ct:pal("Collector exiting with state ~p~n", [State])
-      after 10000
-        -> ct:pal("~p Timed out waiting for response from collector proc~n", [self()])
+      after 10000 ->
+        case erlang:is_process_alive(Pid) of
+          true ->
+            ct:pal("~p Timed out waiting for response from collector proc~n", [self()]);
+          _ ->
+            ct:pal("collector process has died!!!")
+        end
       end,
       exit(Pid, normal),
       ok;
@@ -97,6 +102,7 @@ late_registration_via_api(Config) ->
   {ok, Server} = extcc_subscriber:start([{broadcast_driver, {?MODULE, []}}]),
   register(extcc_subscriber, Server), Ctx = self(),
   ?BLOCK_UNTIL_DONE(Ctx, fun() -> extcc_subscriber:register_subscriber({?MODULE, [Pid]}) end),
+  ct:pal("applying message passing assertions", []),
   ?assertThat(open_channel, was_received_by(Pid), force_stop(Server)).
 
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
@@ -131,16 +137,29 @@ handle_event(Event, State) ->
   {ok, State}.
 
 was_received_by(CollectorPid) ->
-  match_mfa(?MODULE, check_state, [CollectorPid]).
+  Matcher = match_mfa(?MODULE, check_state, [CollectorPid]),
+  ct:pal("generating matcher: ~p", [Matcher]),
+  Matcher.
 
 check_state(CollectorPid, Expected) ->
   %% {response, State} needs to be gotten via recieve!!!
-  CollectorPid ! {status, self()},
-  lists:member(State, Expected).
+  %% CollectorPid ! {status, self()},
+  %% ?WAIT_FOR(CollectorPid, {status, self()}, {response, State}, infinite),
+  StatusMsg = {status, self()},
+  ct:pal("sending ~p to ~p", [StatusMsg, CollectorPid]),
+  CollectorPid ! StatusMsg,
+  receive
+    {response, State} ->
+      ct:pal("status response from collector: ~p", [State]),
+      lists:member(State, Expected);
+    Other ->
+      ct:pal("check_state received unexpected message passing [~p]", Other),
+      false
+  end.
 
 collector_loop(State) ->
   ct:pal("collector looping...~n", []),
-  receive
+  State1 = receive
     {Cmd, Sender} ->
       ct:pal("collector ~p received ~p from ~p~n", [self(), Cmd, Sender]),
       case Cmd of
@@ -151,10 +170,12 @@ collector_loop(State) ->
             ct:pal("collector stopping...~n", []),
             Sender ! {stopping, State},
             exit(normal)
-      end;
+      end,
+      State;
     Other ->
       ct:pal("anon sent ~p~n", [Other]),
-      collector_loop([Other|State])
+      [Other|State]
   after 10000 ->
     ct:pal("timeout in collector loop... stopping~n", [])
-  end.
+  end,
+  collector_loop(State1).
