@@ -57,7 +57,7 @@ end_per_testcase(TestCase, Config) ->
       Pid ! {stop, self()},
       receive
         {stopping, State} ->
-            ct:pal("Collector exiting with state ~p~n", [State])
+            ct:pal("observed collector exiting with state ~p~n", [State])
       after 10000 ->
         case erlang:is_process_alive(Pid) of
           true ->
@@ -78,7 +78,6 @@ starting_subscription_server_without_callback_handler_should_fail(_) ->
 starting_subscription_server_with_valid_callback_should_not_fail(Config) ->
   Pid = proplists:get_value(collector, Config),
   CallbackOptions = [Pid],
-  ct:pal("starting subscription manager", []),
   {ok, Server} = extcc_subscriber:start([
     {broadcast_driver, {?MODULE, [Pid]}}]),
   ?assertThat(Server, isalive()),
@@ -88,7 +87,6 @@ starting_subscription_server_with_valid_callback_should_not_fail(Config) ->
 subscription_server_should_track_registered_subscription_handlers(Config) ->
   Pid = proplists:get_value(collector, Config),
   CallbackOptions = [Pid],
-  ct:pal("starting subscription manager", []),
   {ok, Server} = extcc_subscriber:start([
     {broadcast_driver, {?MODULE, [Pid]}},
     {subscribers, [?MODULE]}]),
@@ -98,12 +96,10 @@ subscription_server_should_track_registered_subscription_handlers(Config) ->
   
 late_registration_via_api(Config) ->
   Pid = proplists:get_value(collector, Config),
-  ct:pal("starting subscription manager", []),
   {ok, Server} = extcc_subscriber:start([{broadcast_driver, {?MODULE, []}}]),
   register(extcc_subscriber, Server), Ctx = self(),
   ?BLOCK_UNTIL_DONE(Ctx, fun() -> extcc_subscriber:register_subscriber({?MODULE, [Pid]}) end),
-  ct:pal("applying message passing assertions", []),
-  ?assertThat(open_channel, was_received_by(Pid), force_stop(Server)).
+  ?assertThat({open_channel, Server}, was_received_by(Pid), force_stop(Server)).
 
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
 %% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
@@ -120,7 +116,7 @@ init(InitArgs) ->
 
 open_channel(Ln, [Pid|_]) when is_pid(Pid) ->
   ct:pal("opening channel against listener ~p~n", [Ln]),
-  Pid ! open_channel,
+  Pid ! {open_channel, Ln},
   open_channel(Ln, []);
 open_channel(_, _) ->
   {ok, ?MODULE}.
@@ -142,36 +138,36 @@ was_received_by(CollectorPid) ->
   Matcher.
 
 check_state(CollectorPid, Expected) ->
-  %% {response, State} needs to be gotten via recieve!!!
-  %% CollectorPid ! {status, self()},
-  %% ?WAIT_FOR(CollectorPid, {status, self()}, {response, State}, infinite),
   StatusMsg = {status, self()},
   ct:pal("sending ~p to ~p", [StatusMsg, CollectorPid]),
   CollectorPid ! StatusMsg,
+  ct:pal("awaiting response from ~p", [CollectorPid]),
   receive
     {response, State} ->
-      ct:pal("status response from collector: ~p", [State]),
-      lists:member(State, Expected);
+      ct:pal("checking result", []),
+      Result = lists:member(Expected, State),
+      ct:pal("checking ~p against collector status ~p: ~p", [Expected, State, Result]),
+      Result;
     Other ->
       ct:pal("check_state received unexpected message passing [~p]", Other),
       false
+  after 20000 ->
+    ct:pal("Timed out waiting for response from ~p, where is_process_alive(~p) == ~p",
+      [CollectorPid, CollectorPid, is_process_alive(CollectorPid)])
   end.
 
 collector_loop(State) ->
   ct:pal("collector looping...~n", []),
-  State1 = receive
-    {Cmd, Sender} ->
-      ct:pal("collector ~p received ~p from ~p~n", [self(), Cmd, Sender]),
-      case Cmd of
-          status ->
-            ct:pal("sending collector status to ~p~n", [Sender]),
-            Sender ! {response, State};
-          stop ->
-            ct:pal("collector stopping...~n", []),
-            Sender ! {stopping, State},
-            exit(normal)
-      end,
-      State;
+  State1 =
+  receive
+    {status, Sender} ->
+      ct:pal("sending collector status to ~p~n", [Sender]),
+      Sender ! {response, State},
+      State; 
+    {stop, Sender} ->
+      ct:pal("collector stopping...~n", []),
+      Sender ! {stopping, State},
+      exit(normal);
     Other ->
       ct:pal("anon sent ~p~n", [Other]),
       [Other|State]

@@ -39,17 +39,3 @@
 	F = fun() -> Code(), Sender ! done end,
 	F(), receive done -> ok end).
 
-%%-define(WAIT_FOR(Pid, Msg, Response, Timeout),
-%%  Pid ! Msg,
-%%  case Timeout of
-%%    infinite ->
-%%      receive
-%%        Response1 when Response1 == Response -> Response1
-%%      end;
-%%    T ->
-%%      receive
-%%        Response2 when Response2 == Response -> Response2
-%%      after T ->
-%%        timeout
-%%      end
-%%  end)
