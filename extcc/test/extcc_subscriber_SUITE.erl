@@ -41,7 +41,8 @@ all() -> [starting_subscription_server_without_callback_handler_should_fail,
           subscription_server_should_track_registered_subscription_handlers,
           late_registration_via_api,
           late_registration_with_channel_state,
-          registration_can_be_combined_with_subscription].
+          registration_can_be_combined_with_subscription,
+          iam_the_broadcast_driver].
 
 init_per_testcase(TestCase, Config) ->
     %% TODO: replace this with libtest/emock
@@ -115,10 +116,15 @@ registration_can_be_combined_with_subscription(Config) ->
     {broadcast_driver, {?MODULE, [Pid]}},
     {subscriptions, [{?MODULE, [Pid]}]}]),
   register(extcc_subscriber, Server), Ctx = self(),
-  ?assertThat({init, [Pid]}, was_received_by(Pid)),
   ?assertThat({open_channel, [Server,Pid]}, was_received_by(Pid), force_stop(Server)).
 
-%% iam_the_broadcast_driver(Config) ->
+iam_the_broadcast_driver(Config) ->
+  Pid = proplists:get_value(collector, Config),
+  {ok, Server} = extcc_subscriber:start([
+    {broadcast_driver, {?MODULE, [Pid]}},
+    {subscriptions, [{?MODULE, [Pid]}]}]),
+  register(extcc_subscriber, Server), Ctx = self(),
+  ?assertThat({init, [Pid]}, was_received_by(Pid), force_stop(Server)).
 
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
 %% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
