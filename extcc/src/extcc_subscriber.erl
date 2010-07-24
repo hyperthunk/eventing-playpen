@@ -126,7 +126,8 @@
          stop/1]).
 
 -export([which_subscribers/0,
-         register_subscriber/1]).
+         register_subscriber/1,
+         register_subscriber/2]).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Exports
@@ -221,11 +222,20 @@ do_start(broadcast_driver, _, _) -> ?E_BADDRIVER.
 %% @hidden
 do_start(server, Options) ->
   case gen_server:start(?MODULE, Options, gen_server_options(Options)) of
-    {ok,_}=Started ->
+    {ok,Server}=Started ->
+      startup_subscriptions(Server, proplists:get_value(subscriptions, Options)),
       Started;
     Other ->
       {error, {startup, {"gen_server startup failed", Other}}}
   end.
+  
+%% @hidden
+startup_subscriptions(Server, [{_, _}=Subscription|Rest]) ->
+  ct:pal("registering subscription~n", []),
+  register_subscriber(Server, Subscription),
+  startup_subscriptions(Server, Rest);
+startup_subscriptions(_, _) ->
+  ok.
 
 %% -----------------------------------------------------------------------------
 %% @doc Stops a subscription server.
@@ -268,7 +278,23 @@ which_subscribers() ->
 %%              Subscriber ::= #'extcc.subscriber'{}
 %% -----------------------------------------------------------------------------
 register_subscriber({_Mod, _InitArgs}=Spec) ->
-  gen_server:call(?SERVER, {register, Spec}).
+  register_subscriber(?SERVER, Spec).
+
+%% -----------------------------------------------------------------------------
+%% @doc Registers a subscriber callback module against the supplied server.
+%% register_subscriber(Server, Spec)
+%%    Server ::= pid() | RegisteredName::atom()
+%%    Spec ::= {Module, InitArgs}
+%%      Module ::= atom()
+%%      InitArgs ::= term()
+%%
+%% Returns: {ok, Subscriber} |
+%%          {stopping, e_subscription_failed} |
+%%          ignored
+%%              Subscriber ::= #'extcc.subscriber'{}
+%% -----------------------------------------------------------------------------
+register_subscriber(Server, Spec) ->
+  gen_server:call(Server, {register, Spec}).
 
 %% ------------------------------------------------------------------
 %% gen_server Function Definitions
@@ -310,7 +336,7 @@ handle_call(_Request, _From, State) ->
   {noreply, ok, State}.
 
 handle_cast(stop, State) ->
-  {stop, normal, stopping, State};
+  {stop, normal, State};
 handle_cast(_Msg, State) ->
   {noreply, State}.
     
