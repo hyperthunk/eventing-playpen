@@ -39,7 +39,8 @@
 all() -> [starting_subscription_server_without_callback_handler_should_fail,
           starting_subscription_server_with_valid_callback_should_not_fail,
           subscription_server_should_track_registered_subscription_handlers,
-          late_registration_via_api].
+          late_registration_via_api,
+          late_registration_with_channel_state].
 
 init_per_testcase(TestCase, Config) ->
     %% TODO: replace this with libtest/emock
@@ -99,7 +100,14 @@ late_registration_via_api(Config) ->
   {ok, Server} = extcc_subscriber:start([{broadcast_driver, {?MODULE, []}}]),
   register(extcc_subscriber, Server), Ctx = self(),
   ?BLOCK_UNTIL_DONE(Ctx, fun() -> extcc_subscriber:register_subscriber({?MODULE, [Pid]}) end),
-  ?assertThat({open_channel, Server}, was_received_by(Pid), force_stop(Server)).
+  ?assertThat({open_channel, [Server,Pid]}, was_received_by(Pid), force_stop(Server)).
+
+late_registration_with_channel_state(Config) ->
+  Pid = proplists:get_value(collector, Config),
+  {ok, Server} = extcc_subscriber:start([{broadcast_driver, {?MODULE, []}}]),
+  register(extcc_subscriber, Server), Ctx = self(),
+  ?BLOCK_UNTIL_DONE(Ctx, fun() -> extcc_subscriber:register_subscriber({?MODULE, [Pid, {state, []}]}) end),
+  ?assertThat({open_channel, [Server,Pid, {state, []}]}, was_received_by(Pid), force_stop(Server)).
 
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
 %% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
@@ -114,9 +122,9 @@ init(InitArgs) ->
   ct:pal("gen_event handler init/1 called", []),
   {ok, InitArgs}.
 
-open_channel(Ln, [Pid|_]) when is_pid(Pid) ->
+open_channel(Ln, [Pid|_]=State) when is_pid(Pid) ->
   ct:pal("opening channel against listener ~p~n", [Ln]),
-  Pid ! {open_channel, Ln},
+  Pid ! {open_channel, [Ln|State]},
   open_channel(Ln, []);
 open_channel(_, _) ->
   {ok, ?MODULE}.
