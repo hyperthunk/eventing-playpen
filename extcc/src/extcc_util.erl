@@ -1,4 +1,8 @@
 %% -----------------------------------------------------------------------------
+%%
+%% Phonostroma: extcc_util
+%%
+%% -----------------------------------------------------------------------------
 %% Copyright (c) 2010 Tim Watson (watson.timothy@gmail.com)
 %%
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -19,38 +23,23 @@
 %% OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 %% THE SOFTWARE.
 %% -----------------------------------------------------------------------------
+%% @doc Utility functions that haven't made their way into commons yet...
+%%
+%% -----------------------------------------------------------------------------
 
--define(CT_REGISTER_TESTS(Mod),
-	All = [ FName || {FName, _} <- lists:filter(
-      fun ({module_info,_}) -> false ;
-          ({all,_}) -> false ;
-          ({init_per_suite,1}) -> false ;
-          ({end_per_suite,1}) -> false ;
-          ({_,1}) -> true ;
-          ({_,_}) -> false
-      end,
-      Mod:module_info(exports)
-    )
-  ],
-  ct:pal("registering ~p~n", [All]),
-  All).
-  
--define(EQC(P),
-  case code:lib_dir(eqc, include) of
-    {error, bad_name} ->
-      proper:check(P);
-    _ ->
-      eqc:check(P)
-  end).
+-module(extcc_util).
 
--define(WAIT_FOR_COLLECTOR(Term),
-  begin
-    ct:pal("suspending test cast process...", []),
-    receive Term -> ok end,
-    ct:pal("test cast process resuming...", [])
-  end).
+-export([find/2]).
 
--define(BLOCK_UNTIL_DONE(Sender, Code),
-	F = fun() -> Code(), Sender ! done end,
-	F(), receive done -> ok end).
+-ifdef(TEST).
+-compile(export_all).
+-endif.
 
+%% @doc Acts exactly like lists:filter/2, except that if a single element
+%% list is identified, the head element is returned directly instead of the list.
+%% 
+find(Pred, Elems) when is_list(Elems) ->
+  case lists:filter(Pred, Elems) of
+    [Elem|[]] -> Elem;
+    Results -> Results
+  end.

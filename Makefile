@@ -48,26 +48,29 @@ build:
 	mkdir -p $@
 
 deps/exmpp: deps
-	@(echo "y" | env HOME=$(BUILD) ./epm install processone/exmpp \
-                                --tag v0.9.3 \
-                                --prebuild-command "autoreconf -vif" \
-                                --build-command "configure && make" \
-                                --config-set build_dir $(HERE)/build \
-                                --config-set install_dir $(HERE)/deps $$VERBOSE)
+	@(echo `env ERL_LIBS=$(ERL_LIBS) escript scripts/checkdeps "exmpp"` | \
+        env HOME=$(BUILD) ./epm install processone/exmpp \
+            --tag v0.9.3 \
+            --prebuild-command "autoreconf -vif" \
+            --build-command "configure && make" \
+            --config-set build_dir $(HERE)/build \
+            --config-set install_dir $(HERE)/deps $$VERBOSE)
 
 deps/ejabberd: deps
-	@(echo "y" | env HOME=$(BUILD) ./epm install processone/ejabberd \
-                                --tag v2.1.4 \
-                                --prebuild-command "cd src && ./configure" \
-                                --build-command "cd src && make && mkdir ../ebin && cp ejabberd.app ../ebin/" \
-                                --config-set build_dir $(BUILD) \
-                                --config-set install_dir $(HERE)/deps $$VERBOSE)
+	@(echo `env ERL_LIBS=$(ERL_LIBS) escript scripts/checkdeps "ejabberd"` | \
+        env HOME=$(BUILD) ./epm install processone/ejabberd \
+            --tag v2.1.4 \
+            --prebuild-command "cd src && ./configure" \
+            --build-command "cd src && make && mkdir ../ebin && cp ejabberd.app ../ebin/" \
+            --config-set build_dir $(BUILD) \
+            --config-set install_dir $(HERE)/deps $$VERBOSE)
 
 deps/proper: deps
-	@(echo "y" | env HOME=$(BUILD) ./epm install manopapad/proper \
-                --build-command "make $(INCL_TYPES)" \
-                --config-set build_dir $(BUILD) \
-                --config-set install_dir $(HERE)/deps $$VERBOSE)
+	@(echo `env ERL_LIBS=$(ERL_LIBS) escript scripts/checkdeps "proper"` | \
+        env HOME=$(BUILD) ./epm install manopapad/proper \
+            --build-command "make $(INCL_TYPES) && rm src/proper.app.src" \
+            --config-set build_dir $(BUILD) \
+            --config-set install_dir $(HERE)/deps $$VERBOSE)
 
 deps/hamcrest/include/hamcrest.hrl: 
 	cd deps/hamcrest; env ERL_LIBS=$$ERL_LIBS make compile VERBOSE=$(VERBOSE)
@@ -79,10 +82,19 @@ compile: check
 	@(env ERL_LIBS=$$ERL_LIBS ./rebar $$VERBOSE compile skip_deps=true)
 
 clean:
-	@(echo "y" | env HOME=$(BUILD) ./epm remove exmpp $(VERBOSE))
-	@(echo "y" | env HOME=$(BUILD) ./epm remove proper $(VERBOSE))
-	@(echo "y" | env HOME=$(BUILD) ./epm remove ejabberd $(VERBOSE))
-	@(./rebar $$VERBOSE clean delete-deps)
+	@(echo `env ERL_LIBS=$(ERL_LIBS) escript scripts/checkdeps "exmpp"` | \
+        env HOME=$(BUILD) ./epm remove exmpp \
+            --config-set build_dir $(BUILD) \
+            --config-set install_dir $(HERE)/deps $$VERBOSE)
+	@(echo `env ERL_LIBS=$(ERL_LIBS) escript scripts/checkdeps "proper"` | \
+        env HOME=$(BUILD) ./epm remove proper \
+            --config-set build_dir $(BUILD) \
+            --config-set install_dir $(HERE)/deps $$VERBOSE)
+	@(echo `env ERL_LIBS=$(ERL_LIBS) escript scripts/checkdeps "ejabberd"` | \
+        env HOME=$(BUILD) ./epm remove ejabberd \
+            --config-set build_dir $(BUILD) \
+            --config-set install_dir $(HERE)/deps $$VERBOSE)
+	@(./rebar $$VERBOSE clean skip_deps=true)
 
 edoc:
 	@$(ERL) -noshell -run edoc_run application '$(APP)' '"."' '[{preprocess, true},{includes, ["."]}]'

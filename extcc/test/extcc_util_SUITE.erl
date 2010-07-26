@@ -1,4 +1,8 @@
 %% -----------------------------------------------------------------------------
+%%
+%% Phonostroma: extcc_subsriber_SUITE
+%%
+%% -----------------------------------------------------------------------------
 %% Copyright (c) 2010 Tim Watson (watson.timothy@gmail.com)
 %%
 %% Permission is hereby granted, free of charge, to any person obtaining a copy
@@ -20,37 +24,28 @@
 %% THE SOFTWARE.
 %% -----------------------------------------------------------------------------
 
--define(CT_REGISTER_TESTS(Mod),
-	All = [ FName || {FName, _} <- lists:filter(
-      fun ({module_info,_}) -> false ;
-          ({all,_}) -> false ;
-          ({init_per_suite,1}) -> false ;
-          ({end_per_suite,1}) -> false ;
-          ({_,1}) -> true ;
-          ({_,_}) -> false
-      end,
-      Mod:module_info(exports)
-    )
-  ],
-  ct:pal("registering ~p~n", [All]),
-  All).
+-module(extcc_util_SUITE).
+
+-include_lib("common_test/include/ct.hrl").
+-include_lib("hamcrest/include/hamcrest.hrl").
+-include_lib("proper/include/proper.hrl").
+-include("../include/test.hrl").
+-include("../include/extcc.hrl").
+
+-compile(export_all).
+
+-import(extcc_util, [find/2]).
+
+all() -> ?CT_REGISTER_TESTS(?MODULE).
+
+find_should_unpack_head_when_result_is_single_elem_list(_) ->
+  P = ?FORALL(XS, list(integer(0, 10)),
+        begin
+          P = fun(X) -> X > 10 end,
+          assert_that(find(P, [15|XS]), is(equal_to(15)))
+        end),
+	?EQC(P).
   
--define(EQC(P),
-  case code:lib_dir(eqc, include) of
-    {error, bad_name} ->
-      proper:check(P);
-    _ ->
-      eqc:check(P)
-  end).
-
--define(WAIT_FOR_COLLECTOR(Term),
-  begin
-    ct:pal("suspending test cast process...", []),
-    receive Term -> ok end,
-    ct:pal("test cast process resuming...", [])
-  end).
-
--define(BLOCK_UNTIL_DONE(Sender, Code),
-	F = fun() -> Code(), Sender ! done end,
-	F(), receive done -> ok end).
-
+  %%P = fun(X) -> x > 10 end,
+  %%find(P, [1, 4, 9, 15]),
+  

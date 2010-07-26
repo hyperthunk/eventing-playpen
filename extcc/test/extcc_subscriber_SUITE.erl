@@ -42,7 +42,8 @@ all() -> [starting_subscription_server_without_callback_handler_should_fail,
           late_registration_via_api,
           late_registration_with_channel_state,
           registration_can_be_combined_with_subscription,
-          iam_the_broadcast_driver].
+          iam_the_broadcast_driver,
+          inbound_events_are_transposed_then_broadcast].
 
 init_per_testcase(TestCase, Config) ->
     %% TODO: replace this with libtest/emock
@@ -70,6 +71,7 @@ end_per_testcase(TestCase, Config) ->
             ct:pal("collector process has died!!!")
         end
       end,
+      catch( unregister(?COLLECTOR(?MODULE)) ),
       exit(Pid, normal),
       ok;
     _ -> ok
@@ -126,6 +128,18 @@ iam_the_broadcast_driver(Config) ->
   register(extcc_subscriber, Server), Ctx = self(),
   ?assertThat({init, [Pid]}, was_received_by(Pid), force_stop(Server)).
 
+inbound_events_are_transposed_then_broadcast(Config) ->
+  Pid = proplists:get_value(collector, Config),
+  {ok, Server} = extcc_subscriber:start([
+    {broadcast_driver, {?MODULE, [Pid]}},
+    {subscriptions, [{?MODULE, [Pid]}]}]),
+  register(extcc_subscriber, Server), Ctx = self(),
+  %% events are delivered using "standard' message passing
+  Server ! {?MODULE, {raw_data, self(), ?MODULE}},
+  ?WAIT_FOR_COLLECTOR(resume),
+  ExpectedEvent = #'extcc.event'{ body={raw_data, self(), ?MODULE} },
+  ?assertThat({handle_event, ExpectedEvent}, was_received_by(Pid), force_stop(Server)).  
+
 %% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
 %% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
 
@@ -157,6 +171,8 @@ transpose_event(RawInput, State) ->
 terminate(_Reason, _State) -> ok.
 
 handle_event(Event, State) ->
+  CPid = ?COLLECTOR(?MODULE),
+  CPid ! {handle_event, Event},
   {ok, State}.
 
 was_received_by(CollectorPid) ->
@@ -195,6 +211,9 @@ collector_loop(State) ->
       ct:pal("collector stopping...~n", []),
       Sender ! {stopping, State},
       exit(normal);
+    {handle_event, #'extcc.event'{ body={raw_data, Pid, _} }}=Ev ->
+      ct:pal("received event, restarting test case process ~p~n", [Pid]),
+      Pid ! resume, [Ev|State];
     Other ->
       ct:pal("anon sent ~p~n", [Other]),
       [Other|State]

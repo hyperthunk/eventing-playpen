@@ -57,11 +57,11 @@
 %%              State = term() i.e., state associated with the channel
 %%
 %%    ==> {ok, Transposed}
-%%        {ok, Transposed, State}
-%%        {error, Reason, State}
+%%        {ok, Transposed, NewState}
+%%        {error, Reason, NewState}
 %%              Transposed = #'extcc.event'{} i.e., the transposed event
 %%              Reason = term() i.e., describes the reason the operation failed
-%%              State = term() i.e., state associated with the channel
+%%              NewState = term() i.e., state associated with the channel
 %%
 %%   terminate(Reason, State) Let the user module clean up
 %%        always called when this server terminates
@@ -339,7 +339,25 @@ handle_cast(stop, State) ->
   {stop, normal, State};
 handle_cast(_Msg, State) ->
   {noreply, State}.
-    
+
+handle_info({ChannelRef, Event}, #state{ subscribers=Subs }=State) ->
+  case find_subscriber(ChannelRef, Subs) of
+    {error, not_found} ->
+      {stop, {error, {no_channel, ChannelRef, Event}}, State};
+    {error, not_unique_cref} -> %% TODO: where are the tests for this!? :/
+      {stop, {error, {not_unique_cref, ChannelRef, Event, State}}, State};
+    #'extcc.subscriber'{ mod=Mod, state=S } ->
+      case Mod:transpose_event(Event, S) of
+        {ok, Transposed} ->
+          publish(Transposed),
+          {noreply, State};
+        {ok, Transposed, NewState} ->
+          publish(Transposed),
+          {noreply, NewState};
+        {error, Reason, NewState} ->
+          {stop, {error, {conversion_failed, {ChannelRef, Event, Reason}}, NewState}}
+      end
+  end;
 handle_info(_Info, State) ->
   {noreply, State}.
 
@@ -352,6 +370,17 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+publish(Event) ->
+  gen_event:notify(?SUBSCRIPTION_EV_MGR, Event).
+
+find_subscriber(ChannelRef, Subscribers) ->
+  P = fun(#'extcc.subscriber'{ channel=Chan }) -> Chan == ChannelRef end,
+  case extcc_util:find(P, Subscribers) of
+    [_|_] -> {error, not_unique_cref};
+    [] -> {error, not_found};
+    #'extcc.subscriber'{}=Subscriber -> Subscriber
+  end.
 
 %% @hidden
 gen_server_options(Options) ->
