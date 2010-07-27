@@ -153,7 +153,6 @@ server_stop_should_allow_subscriber_cleanup(Config) ->
       {?MODULE, {sub2, Config2}}]}]),
   erlang:yield(),
   Ctx = self(),
-  ?TDEBUG("stopping extcc_subscriber...~n", []),
   extcc_subscriber:stop(Server),
   erlang:yield(),
   ?WAIT_FOR_COLLECTOR({terminated, _, normal}),
@@ -195,7 +194,6 @@ transpose_event(RawInput, State) ->
   {ok, #'extcc.event'{ body=RawInput }, State}.
 
 terminate(ChannelRef, Reason, {_,Config}=State) ->
-  ?TDEBUG("terminating channel ~p...~n", [ChannelRef]),
   CPid = proplists:get_value(collector, Config),
   CPid ! {terminate, {ChannelRef, Reason, Config}},
   {ok, State}.
@@ -215,15 +213,12 @@ check_state(CollectorPid, Expected) ->
   ?TDEBUG("awaiting response from ~p", [CollectorPid]),
   receive
     {response, State} ->
-      ?TDEBUG("checking result", []),
-      Result = lists:member(Expected, State),
-      ?TDEBUG("checking ~p against collector status ~p: ~p", [Expected, State, Result]),
-      Result;
+      lists:member(Expected, State);
     Other ->
       ?TDEBUG("check_state received unexpected message passing [~p]", Other),
       false
   after ?CHECKSTATE_TIMEOUT ->
-    ?TDEBUG("Timed out waiting for response from ~p, where is_process_alive(~p) == ~p",
+    ?TDEBUG("timed out waiting for response from ~p, where is_process_alive(~p) == ~p",
       [CollectorPid, CollectorPid, is_process_alive(CollectorPid)])
   end.
 
@@ -232,7 +227,6 @@ collector_loop(State) ->
   State1 =
   receive
     {status, Sender} ->
-      ?TDEBUG("sending collector status to ~p~n", [Sender]),
       Sender ! {response, State},
       State; 
     {stop, Sender} ->
@@ -247,7 +241,6 @@ collector_loop(State) ->
       TPid = proplists:get_value(test_process, Config),
       TPid ! {terminated, ChannelRef, Reason}, [Msg|State];
     Other ->
-      ?TDEBUG("anon sent ~p~n", [Other]),
       [Other|State]
   after ?COLLECTOR_TIMEOUT ->
     ?TDEBUG("timeout in collector loop... stopping~n", [])
