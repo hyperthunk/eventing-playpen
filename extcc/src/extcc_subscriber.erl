@@ -45,7 +45,12 @@
 %%              State = term() i.e., state associated with the channel
 %%              Reason = term() i.e., describes the reason the operation failed
 %%
-%%   close_channel(ChannelRef, State) Lets the user module clean up a specific channel
+%%   close_channel(ChannelRef, State) Lets the user module clean up a specific channel.
+%%
+%% This is a less aggressive shutdown mechanism than terminate, which lets the
+%% subscriber module know that the channel service is no longer required but the
+%% server itself is not actually shutting down.
+%%
 %%              ChannelRef = term() e.g., a means for the callback module to
 %%                                  uniquely identify the channel (can be the module name)
 %%              State = term() i.e., state associated with the channel
@@ -63,10 +68,15 @@
 %%              Reason = term() i.e., describes the reason the operation failed
 %%              NewState = term() i.e., state associated with the channel
 %%
-%%   terminate(Reason, State) Let the user module clean up
-%%        always called when this server terminates
+%%   terminate(ChannelRef, Reason, State) Let the user module clean up.
+%%
+%% An aggresive shutdown model, this function is always called when this server terminates.
+%% Calls to terminate should return in a timely fashion as the server might not be able to
+%% restart until all (user) subscriber modules have fully terminated.
 %%
 %%    ==> ok
+%%              ChannelRef = term() e.g., a means for the callback module to
+%%                                  uniquely identify the channel (can be the module name)
 %%              Reason = term() i.e., describes the reason the operation failed
 %%              State = term() i.e., state associated with the channel
 %%
@@ -84,8 +94,10 @@
 %%                                Server ! Term      .
 %%     transpose_event  <-----                       .
 %%                      ----->                       .
-%%     stop (or)        ----->                       .
 %%     unregister       ----->                       .
+%%     close_channel    <-----                       .
+%%                  or
+%%     stop             ----->                       .
 %%     terminate        <-----                       .
 %%
 %%
@@ -125,7 +137,8 @@
          stop/0,
          stop/1]).
 
--export([which_subscribers/0,
+-export([dump/1,
+        which_subscribers/0,
          register_subscriber/1,
          register_subscriber/2]).
 
@@ -154,9 +167,10 @@
 -define(SERVER, ?MODULE).
 
 -record(state, {
-    listener                :: pid() | atom() | {atom(), atom()} | {global, atom()},
-    options     = []        :: [{atom(), term()}],
-    subscribers = []        :: []
+    listener                  :: pid() | atom() | {atom(), atom()} | {global, atom()},
+    options       = []        :: [{atom(), term()}],
+    subscribers   = []        :: [#'extcc.subscriber'{}],
+    terminations  = []        :: [term()]
 }).
 
 %% ------------------------------------------------------------------
@@ -167,7 +181,7 @@ behaviour_info(callbacks) ->
   [{open_channel, 2},
    {close_channel, 2},
    {transpose_event, 2},
-   {terminate, 2}];
+   {terminate, 3}];
 behaviour_info(_Other) ->
   undefined.
 
@@ -231,7 +245,6 @@ do_start(server, Options) ->
   
 %% @hidden
 startup_subscriptions(Server, [{_, _}=Subscription|Rest]) ->
-  ct:pal("registering subscription~n", []),
   register_subscriber(Server, Subscription),
   startup_subscriptions(Server, Rest);
 startup_subscriptions(_, _) ->
@@ -257,6 +270,9 @@ stop(Name) when is_atom(Name) ->
     gen_server:cast(Name, stop);
 stop(Pid) when is_pid(Pid) ->
     gen_server:cast(Pid, stop).
+
+dump(Server) ->
+  gen_server:call(Server, dump).
 
 %% -----------------------------------------------------------------------------
 %% @doc Returns a list of all registered subscription plugins
@@ -304,6 +320,9 @@ init(Args) ->
   Listener = proplists:get_value(listener, Args, self()),
   {ok, #state{ options=Args, listener=Listener }}.
 
+handle_call(dump, _, State) ->
+  ct:pal("state = [~p] ~n", [State]),
+  {reply, ok, State};
 handle_call({get_config, Key}, _,
     #state{ options=Opts }=State) ->
   {reply, proplists:get_value(Key, Opts), State};
@@ -312,19 +331,13 @@ handle_call({register, {Mod, InitArgs}}, _,
   case Mod:open_channel(Listener, InitArgs) of
     {ok, ChannelRef} ->
       Subscription =
-      #'extcc.subscriber'{
-        channel=ChannelRef,
-        mod=Mod,
-        init=InitArgs},
+      #'extcc.subscriber'{ channel=ChannelRef, mod=Mod, init=InitArgs},
       {reply, {ok, Subscription},
         State#state{ subscribers=[Subscription|Subs] }};
-    {ok, ChannelRef, State} ->
+    {ok, ChannelRef2, ChannelState} ->
       StatefulSubscription =
-      #'extcc.subscriber'{
-        channel=ChannelRef,
-        state=State,
-        mod=Mod,
-        init=InitArgs},
+      #'extcc.subscriber'{ channel=ChannelRef2, state=ChannelState,
+                            mod=Mod, init=InitArgs},
       {reply, {ok, StatefulSubscription},
         State#state{ subscribers=[StatefulSubscription|Subs] }};
     ignore -> 
@@ -336,7 +349,8 @@ handle_call(_Request, _From, State) ->
   {noreply, ok, State}.
 
 handle_cast(stop, State) ->
-  {stop, normal, State};
+  ct:pal("asked to stop in state ~p~n", [State]),
+  {stop, normal, State#state{ terminations=terminate_all_channels(State) }};
 handle_cast(_Msg, State) ->
   {noreply, State}.
 
@@ -370,6 +384,12 @@ code_change(_OldVsn, State, _Extra) ->
 %% ------------------------------------------------------------------
 %% Internal Function Definitions
 %% ------------------------------------------------------------------
+
+terminate_all_channels(#state{ subscribers=Subs }) ->
+  lists:map(fun terminate_channel/1, Subs).
+
+terminate_channel(#'extcc.subscriber'{ channel=Chan, mod=Mod, state=State }) ->
+  Mod:terminate(Chan, normal, State).
 
 publish(Event) ->
   gen_event:notify(?SUBSCRIPTION_EV_MGR, Event).

@@ -34,6 +34,8 @@
 
 -compile(export_all).
 
+-define(COLLECTOR_TIMEOUT, 10000).
+-define(CHECKSTATE_TIMEOUT, 20000).
 -define(COLLECTOR(TC), list_to_atom(atom_to_list(TC) ++ "_collector")).
 
 all() -> [starting_subscription_server_without_callback_handler_should_fail,
@@ -43,32 +45,33 @@ all() -> [starting_subscription_server_without_callback_handler_should_fail,
           late_registration_with_channel_state,
           registration_can_be_combined_with_subscription,
           iam_the_broadcast_driver,
-          inbound_events_are_transposed_then_broadcast].
+          inbound_events_are_transposed_then_broadcast,
+          server_stop_should_allow_subscriber_cleanup].
 
 init_per_testcase(TestCase, Config) ->
     %% TODO: replace this with libtest/emock
     Pid = spawn(?MODULE, collector_loop, [[]]),
     register(?COLLECTOR(?MODULE), Pid),
-    ct:pal("spawned pid [~p] to collect for testcase [~p]~n", [Pid, TestCase]),
+    ?TDEBUG("spawned pid [~p] to collect for testcase [~p]~n", [Pid, TestCase]),
     gen_event:start({local, ?SUBSCRIPTION_EV_MGR}),
     [{collector, Pid}|Config].
 
 end_per_testcase(TestCase, Config) ->
   gen_event:stop(?SUBSCRIPTION_EV_MGR),
-  ct:pal("cleaning up for testcase [~p]~n", [TestCase]),
+  ?TDEBUG("cleaning up for testcase [~p]~n", [TestCase]),
   case lists:keyfind(collector, 1, Config) of
     {collector, Pid} ->
-      ct:pal("killing collector [~p]~n", [Pid]),
+      ?TDEBUG("killing collector [~p]~n", [Pid]),
       Pid ! {stop, self()},
       receive
         {stopping, State} ->
-            ct:pal("observed collector exiting with state ~p~n", [State])
+            ?TDEBUG("observed collector exiting with state ~p~n", [State])
       after 10000 ->
         case erlang:is_process_alive(Pid) of
           true ->
-            ct:pal("~p Timed out waiting for response from collector proc~n", [self()]);
+            ?TDEBUG("~p Timed out waiting for response from collector proc~n", [self()]);
           _ ->
-            ct:pal("collector process has died!!!")
+            ?TDEBUG("collector process has died!!!", [])
         end
       end,
       catch( unregister(?COLLECTOR(?MODULE)) ),
@@ -140,13 +143,33 @@ inbound_events_are_transposed_then_broadcast(Config) ->
   ExpectedEvent = #'extcc.event'{ body={raw_data, self(), ?MODULE} },
   ?assertThat({handle_event, ExpectedEvent}, was_received_by(Pid), force_stop(Server)).  
 
-%% TODO: need to provide a PUBLICATION hook so we can register *this* module as a callback
-%% TODO: need a way to propagate state in the subscription manager (already exists?) so we can call the collector with each event
+server_stop_should_allow_subscriber_cleanup(Config) ->
+  Pid = proplists:get_value(collector, Config),
+  Config2 = [{test_process, self()}|Config],
+  {ok, Server} = extcc_subscriber:start([
+    {broadcast_driver, {?MODULE, [Pid]}},
+    {subscriptions, [
+      {?MODULE, {sub1, Config2}},
+      {?MODULE, {sub2, Config2}}]}]),
+  erlang:yield(),
+  Ctx = self(),
+  ?TDEBUG("stopping extcc_subscriber...~n", []),
+  extcc_subscriber:stop(Server),
+  erlang:yield(),
+  ?WAIT_FOR_COLLECTOR({terminated, _, normal}),
+  ?WAIT_FOR_COLLECTOR({terminated, _, normal}),
+  ?assertThat({terminate, {sub1, normal, Config2}}, was_received_by(Pid)),
+  ?assertThat({terminate, {sub2, normal, Config2}}, was_received_by(Pid)).
+
+%% internal utility/support functions
+
+contains_element(Elem) ->
+  match_mfa(lists, member, [Elem]).
 
 force_stop(Server) ->
   fun() ->
     catch( unregister(extcc_subscriber) ),
-    ct:pal("stopping extcc_subscriber...~ndone: ~p~n",
+    ?TDEBUG("stopping extcc_subscriber...~ndone: ~p~n",
       [extcc_subscriber:stop(Server)])
   end.
 
@@ -156,9 +179,12 @@ init(InitArgs) ->
   {ok, InitArgs}.
 
 open_channel(Ln, [Pid|_]=State) when is_pid(Pid) ->
-  ct:pal("opening channel against listener ~p~n", [Ln]),
   Pid ! {open_channel, [Ln|State]},
   open_channel(Ln, []);
+open_channel(Ln, {ChanId, Config}=State) ->
+  Pid = proplists:get_value(collector, Config),
+  Pid ! {open_channel, State},
+  {ok, ChanId, State};
 open_channel(_, _) ->
   {ok, ?MODULE}.
 
@@ -168,7 +194,11 @@ close_channel(_,_) ->
 transpose_event(RawInput, State) ->
   {ok, #'extcc.event'{ body=RawInput }, State}.
 
-terminate(_Reason, _State) -> ok.
+terminate(ChannelRef, Reason, {_,Config}=State) ->
+  ?TDEBUG("terminating channel ~p...~n", [ChannelRef]),
+  CPid = proplists:get_value(collector, Config),
+  CPid ! {terminate, {ChannelRef, Reason, Config}},
+  {ok, State}.
 
 handle_event(Event, State) ->
   CPid = ?COLLECTOR(?MODULE),
@@ -176,48 +206,50 @@ handle_event(Event, State) ->
   {ok, State}.
 
 was_received_by(CollectorPid) ->
-  Matcher = match_mfa(?MODULE, check_state, [CollectorPid]),
-  ct:pal("generating matcher: ~p", [Matcher]),
-  Matcher.
+  match_mfa(?MODULE, check_state, [CollectorPid]).
 
 check_state(CollectorPid, Expected) ->
   StatusMsg = {status, self()},
-  ct:pal("sending ~p to ~p", [StatusMsg, CollectorPid]),
+  ?TDEBUG("sending ~p to ~p", [StatusMsg, CollectorPid]),
   CollectorPid ! StatusMsg,
-  ct:pal("awaiting response from ~p", [CollectorPid]),
+  ?TDEBUG("awaiting response from ~p", [CollectorPid]),
   receive
     {response, State} ->
-      ct:pal("checking result", []),
+      ?TDEBUG("checking result", []),
       Result = lists:member(Expected, State),
-      ct:pal("checking ~p against collector status ~p: ~p", [Expected, State, Result]),
+      ?TDEBUG("checking ~p against collector status ~p: ~p", [Expected, State, Result]),
       Result;
     Other ->
-      ct:pal("check_state received unexpected message passing [~p]", Other),
+      ?TDEBUG("check_state received unexpected message passing [~p]", Other),
       false
-  after 20000 ->
-    ct:pal("Timed out waiting for response from ~p, where is_process_alive(~p) == ~p",
+  after ?CHECKSTATE_TIMEOUT ->
+    ?TDEBUG("Timed out waiting for response from ~p, where is_process_alive(~p) == ~p",
       [CollectorPid, CollectorPid, is_process_alive(CollectorPid)])
   end.
 
 collector_loop(State) ->
-  ct:pal("collector looping...~n", []),
+  ?TDEBUG("collector looping...~n", []),
   State1 =
   receive
     {status, Sender} ->
-      ct:pal("sending collector status to ~p~n", [Sender]),
+      ?TDEBUG("sending collector status to ~p~n", [Sender]),
       Sender ! {response, State},
       State; 
     {stop, Sender} ->
-      ct:pal("collector stopping...~n", []),
+      ?TDEBUG("collector stopping...~n", []),
       Sender ! {stopping, State},
       exit(normal);
     {handle_event, #'extcc.event'{ body={raw_data, Pid, _} }}=Ev ->
-      ct:pal("received event, restarting test case process ~p~n", [Pid]),
+      ?TDEBUG("received event, restarting test case process ~p~n", [Pid]),
       Pid ! resume, [Ev|State];
+    {terminate, {ChannelRef, Reason, Config}}=Msg ->
+      ?TDEBUG("received notification of channel ~p termination [~p]...~n", [ChannelRef, Config]),
+      TPid = proplists:get_value(test_process, Config),
+      TPid ! {terminated, ChannelRef, Reason}, [Msg|State];
     Other ->
-      ct:pal("anon sent ~p~n", [Other]),
+      ?TDEBUG("anon sent ~p~n", [Other]),
       [Other|State]
-  after 10000 ->
-    ct:pal("timeout in collector loop... stopping~n", [])
+  after ?COLLECTOR_TIMEOUT ->
+    ?TDEBUG("timeout in collector loop... stopping~n", [])
   end,
   collector_loop(State1).

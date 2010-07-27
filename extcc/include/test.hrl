@@ -45,12 +45,14 @@
 
 -define(WAIT_FOR_COLLECTOR(Term),
   begin
-    ct:pal("suspending test cast process...", []),
+    ?TDEBUG("suspending test cast process on selective receive...~n", []),
     receive Term -> ok end,
-    ct:pal("test cast process resuming...", [])
+    ?TDEBUG("test cast process resuming...~n", [])
   end).
 
 -define(BLOCK_UNTIL_DONE(Sender, Code),
 	F = fun() -> Code(), Sender ! done end,
 	F(), receive done -> ok end).
 
+-define(TDEBUG(Pattern, Args),
+  ct:pal("~p: " ++ Pattern, [self()|Args])).
