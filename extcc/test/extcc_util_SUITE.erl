@@ -39,13 +39,21 @@
 all() -> ?CT_REGISTER_TESTS(?MODULE).
 
 find_should_unpack_head_when_result_is_single_elem_list(_) ->
-  P = ?FORALL(XS, list(integer(0, 10)),
+  P = ?FORALL(XS, list(integer(0, 10)), 
+        ?IMPLIES(length(XS) > 0,
         begin
-          P = fun(X) -> X > 10 end,
-          assert_that(find(P, [15|XS]), is(equal_to(15)))
-        end),
+          ?assertThat(find(fun(X) -> X > 10 end, [15|XS]), is(equal_to(15)))
+        end)),
 	?EQC(P).
   
-  %%P = fun(X) -> x > 10 end,
-  %%find(P, [1, 4, 9, 15]),
+find_should_return_complete_results_when_more_than_one_element_is_found(_) ->
+  P = ?FORALL(XS, list(integer(0, 10)),
+        ?IMPLIES(length(XS) > 1,
+          begin
+            P = fun(X) -> X >= 0 andalso X =< 10 end,
+            ?assertThat(length(find(P, XS)), is(equal_to(length(XS))))
+          end)),
+	?EQC(P).
   
+%%find_behaves_like_filter_for_empty_list(_) ->
+%%  ?assertThat(find(fun(X) -> false end, []), isempty()).
