@@ -55,5 +55,5 @@ find_should_return_complete_results_when_more_than_one_element_is_found(_) ->
           end)),
 	?EQC(P).
   
-%%find_behaves_like_filter_for_empty_list(_) ->
-%%  ?assertThat(find(fun(X) -> false end, []), isempty()).
+find_behaves_like_filter_for_empty_list(_) ->
+  ?assertThat(find(fun(X) -> false end, []), isempty()).
